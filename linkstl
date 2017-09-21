@@ -1,0 +1,56 @@
+#!/usr/bin/lua
+--
+-- linkstl:
+-- Makes a symbolic link in $STELLARIS_MOD_FOLDER
+-- that points to the current directory, using the
+-- .id key from modinfo.lua as link name.
+-- LICENSE CC-BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0
+-- by folk@folk.wtf
+--
+
+local lfs = require("lfs")
+local cwd = lfs.currentdir()
+
+-- Sanity check STELLARIS_MOD_FOLDER
+local modFolder = os.getenv("STELLARIS_MOD_FOLDER")
+if type(modFolder) ~= "string" or #modFolder == 0 then print("Set the env plz."); return end
+if modFolder:sub(#modFolder) ~= "/" then modFolder = modFolder .. "/" end
+if modFolder:find("\\") then print("folk you idiot, you put \\ in the path again."); return end
+local modFolderExists, modFolderError = lfs.attributes(modFolder, "mode")
+if not modFolderExists then print(modFolderError); return end
+
+-- Load mod info from current folder
+local modinfo = loadfile("modinfo.lua")
+if type(modinfo) ~= "function" then print("Could not find modinfo.lua in current working directory."); return end
+local info = modinfo()
+if type(info) ~= "table" then print("modinfo does not return a mod info table."); return end
+
+-- Check that link exists
+local fullLinkPath = modFolder .. info.path
+local exists = lfs.attributes(fullLinkPath, "mode")
+if type(exists) == "string" then
+	print("It seems " .. fullLinkPath .. " already exists.")
+else
+	-- Create link
+	local ret, err = lfs.link(cwd, fullLinkPath, true)
+	if not ret then print(err); return end
+	print(info.path .. " linked to " .. cwd .. ".")
+end
+
+-- Check the .mod file
+local modFile = fullLinkPath .. ".mod"
+local mode, modFileError = lfs.attributes(modFile, "mode")
+if type(mode) ~= "string" then
+	if not mode then print(modFileError) end
+	print(info.path .. ".mod does not seem to exist.")
+	print("Please create it before running Stellaris.")
+else
+	local esc = info.path:gsub("([^%w])", "%%%1")
+	local pattern = ("path%%=%%\"mod/%s%%\""):format(esc)
+	local content = io.open(modFile, "r"):read("*a")
+	if content:find(pattern) then
+		print(info.path .. ".mod exists. And it points to the correct place.")
+	else
+		print(info.path .. ".mod exists. But may point to the wrong target. Please check.")
+	end
+end

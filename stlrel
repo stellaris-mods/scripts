@@ -1,0 +1,358 @@
+#!/usr/bin/lua
+local VERSION = 2
+-- lua release script for stellaris mods
+-- by folk@folk.wtf
+-- LICENSE CC-BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0
+--
+-- Requires:
+--  * https://github.com/folknor/luash (and maybe the original)
+--  * https://github.com/folknor/lua-github
+--  * http://keplerproject.github.io/luafilesystem/
+--  * linkstl from the same repository as executable in PATH
+--  * zip, curl, and obviously git
+--
+-- Remember to set up ~/.netrc for ok.sh, instructions:
+-- https://github.com/whiteinge/ok.sh#setup
+-- https://ec.haxx.se/usingcurl-netrc.html
+-- https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html
+--
+-- Add the script to your path, or make an alias, and then run it from
+-- a Stellaris mod folder that you've pushed to github.
+--
+
+local function helpExit(err)
+	if err then print("Error: " .. tostring(err)) end
+	print(([[
+Stellaris Mod Release Script
+version %d - https://github.com/stellaris-mods/scripts
+by folk@folk.wtf, licensed CC-BY-SA 4.0
+
+Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh.
+
+--git:
+  1. Update the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
+  2. If info.steambb has changed since the previous git tag, transliterate the BBcode to Markdown and update info.readme
+  3. Pushes a new tag in the format 19701230, appended by -HHMM if it already exists
+  4. Creates a new release on github from the created tag, with a changelog
+  5. Creates a ZIP with the mod contents + .mod file and adds it to the release
+
+--steam:
+  1. Updates the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
+  2. If info.steambb has changed since the previous git tag, transliterate the BBcode to Markdown and update info.readme
+  3. Deletes the mod folder from STELLARIS_MOD_FOLDER entirely
+  4. Copies the contents of the current folder to STELLARIS_MOD_FOLDER/modinfo.path
+  5. Waits for you to do a release
+  6. Does #3 again
+  7. Runs linkstl
+
+  --steam runs even if the mod is not in git. So then it skips some parts of #2.
+  I need --steam because the Stellaris launcher can not upload content from symbolic links.
+  And yes, --steam is potentially destructive if $STELLARIS_MOD_FOLDER is incorrectly set, for example.
+
+--help: This text.
+--dry: git commands are ignored, for safe offline testing.
+--force: Ignore untracked files or unstaged changes.
+]]):format(VERSION))
+	os.exit()
+end
+
+-- Due to the highly fucked up nature of the code below, remember that
+-- some "global" variables are only set if _git or _repoExists is true.
+-- For example: then don't use them in a --steam only runthrough.
+--
+-- Patches welcome, I certainly don't plan on spending much more time on
+-- this script.
+
+local _dry, _force, _steam, _git
+for i = 1, select("#", ...) do
+	local arg = (select(i, ...)):lower()
+	if arg:find("help") then helpExit()
+	elseif arg:find("dry") then _dry = true
+	elseif arg:find("force") then _force = true
+	elseif arg:find("git") then _git = true
+	elseif arg:find("steam") then _steam = true
+	end
+end
+if not _steam and not _git then helpExit("You must specify either --steam or --git.") end
+local _gh = require("lua-github").easy
+
+local sh = require("sh")
+local _ = function(s) if type(s) ~= "nil" then return tostring(s) end end
+
+-- Check for required shell commands
+local which = sh.command("which")
+for _, req in next, {"curl", "git", "zip", "cp", "rm", "linkstl"} do
+	if which(req).__exitcode ~= 0 then helpExit(("`which %s` does not seem to return anything useful."):format(req)) end
+end
+
+-- noop sh.command wrapper functions for --dry runs
+local function noop(cmd)
+	return function(...) print("sh$ " .. cmd .. " " .. table.concat({...}, " ")); return "DRYRUN" end
+end
+local command = _dry and noop or sh.command
+
+-- Check if there are any available updates for the script
+local scriptUrl = "https://raw.githubusercontent.com/stellaris-mods/scripts/master/stlrel"
+local src = _(sh.command("curl")("-s", scriptUrl))
+if type(src) == "string" then
+	local remote = tonumber(src:match("local VERSION = (%d+)"))
+	if type(remote) == "number" and remote > VERSION then
+		local answer
+		repeat
+			io.write("There is a new version of the release script available, do you want to exit (y/n)? ")
+			io.flush()
+			answer = io.read()
+		until answer == "y" or answer == "n"
+		if answer == "y" then return end
+	end
+end
+
+local git = command("git")
+
+-- Check git status and see if we are up to date with our branch, or if we have unstaged changes
+local _repoExists = true
+if not _dry then
+	local stat = _(git("status"))
+	if type(stat) ~= "string" or #stat == 0 or stat:find("Not a git repository") then
+		_repoExists = false
+	elseif stat:find("to be committed") then
+		helpExit("You seem to have commits ready for push, please check `git status`.")
+	elseif not _force and stat:find("not staged for commit") then
+		helpExit("Please don't make a release while you have changes that are not staged for commit, or rerun with --force.")
+	elseif not _force and stat:find("Untracked files") then
+		helpExit("You have untracked files, please check `git status` or rerun stlrel with --force.")
+	elseif not stat:find("Your branch is up%-to%-date") then
+		helpExit("You do not seem up to date with your branch, please check `git status`.")
+	end
+end
+if _git and not _repoExists then helpExit("Current folder doesn't seem to contain a git repository.") end
+
+-- Check that the current folder is a git repository, and store the repo name for later
+local repo
+if _git then
+	repo = _(git("rev-parse", "--show-toplevel"))
+	if type(repo) ~= "string" or #repo == 0 then helpExit("Current folder doesn't seem to contain a git repository.") end
+	-- |repo| is used later in the script as well, so don't mangle it
+	if not _dry then repo = repo:match("^.*/([%w%-%_]+)$") end
+end
+
+
+-- sanity check the environment
+local userId = os.getenv("STELLARIS_GIT_USER")
+local modFolder = os.getenv("STELLARIS_MOD_FOLDER")
+if type(modFolder) ~= "string" or #modFolder == 0 then helpExit("Set $STELLARIS_MOD_FOLDER.") end
+if type(userId) ~= "string" or #userId == 0 then helpExit("Set $STELLARIS_GIT_USER to your github username.") end
+if modFolder:sub(#modFolder) ~= "/" then modFolder = modFolder .. "/" end
+if modFolder:find("\\") then print("folk you idiot, you put \\ in the path again."); return end
+
+-- Sanity check modinfo.lua
+local modinfo = loadfile("modinfo.lua")
+if type(modinfo) ~= "function" then helpExit("Could not find modinfo.lua in current working directory.") end
+local info = modinfo()
+if type(info) ~= "table" then helpExit("modinfo does not return a mod info table.") end
+-- modKeys and modKeyFuncs need to be in the same order
+local modKeys = {"name", "path", "tags", "picture", "remote_file_id", "supported_version"}
+local modKeyFuncs = {
+	true, function(input)
+		return ('"mod/%s"'):format(input)
+	end, function(input)
+		if #input == 0 then return "{}" end
+		local tags = ""
+		for _, tag in next, input do tags = tags .. ("\t%q\n"):format(tag) end
+		return ("{\n%s}"):format(tags)
+	end, true, function(input)
+		if type(input) ~= "number" then return false end
+		return ("%q"):format(input)
+	end, true
+}
+for _, k in next, modKeys do if type(info[k]) == "nil" then helpExit(("Key %q seems invalid."):format(k)) end end
+
+-- load mod info from modinfo.lua in the current folder, and update $STELLARIS_MOD_FOLDER/mod_id.mod
+-- with the contents from modinfo.lua.
+-- Note that this is pushed regardless whether there are any changes or not. This file should not be in git.
+local modFile = modFolder .. info.path .. ".mod"
+local dotModContent = ""
+for i, key in next, modKeys do
+	if type(modKeyFuncs[i]) == "function" then
+		local ret = modKeyFuncs[i](info[key])
+		if ret then dotModContent = dotModContent .. ("%s=%s\n"):format(key, ret) end
+	elseif info[key] then
+		dotModContent = dotModContent .. ("%s=%q\n"):format(key, tostring(info[key]))
+	end
+end
+
+local w = io.open(modFile, "w+"); w:write(dotModContent); w:close()
+print(("Updated mod file %s for Stellaris version %s."):format(modFile, info.supported_version))
+
+local lastTag, changedFiles
+if _repoExists then
+	-- Get the last tag in git
+	lastTag = _(git("for-each-ref", "--format=\"%(refname:short)\"", "--sort=-authordate", "--count=1", "refs/tags"))
+
+	-- See if the steam bb file has changed since the last tag
+	changedFiles = _(git("diff", "--name-only", "HEAD", lastTag))
+end
+
+if (not _repoExists or _dry or changedFiles:find(info.steambb)) and info.readme and info.steambb then
+	-- The steam bb description has changed, we need to transliterate from steambb to markdown
+	local function block(input)
+		local ret = ""
+		for line in input:gmatch("[^\r\n]+") do ret = ret .. "\n> " .. line end
+		return ret .. "\n"
+	end
+	local patterns = { -- yes, .- is slow as hell, who cares
+		["%[quote=(.-)%](.-)%[/quote%]"] = function(author, quote) return "\n> (" .. author .. ")" .. block(quote) end,
+		["%[quote%](.-)%[/quote%]"] = block,
+		["%[code%](.-)%[/code%]"] = block,
+		["%[img%](.-)%[/img%]"] = "![](%1)",
+		["%[img=(.-)%]"] = "![](%1)",
+		-- We should probably support nested lists and olists.
+		-- Probably easiest to rewrite this whole thing using lrexlib.
+		["%[list%](.-)%[/list%]"] = function(input)
+			local ret = "\n"
+			for li in input:gmatch("%[%*%](.-)\n") do ret = ret .. "* " .. li .. "\n" end
+			return ret .. "\n"
+		end,
+		["%[olist%](.-)%[/olist%]"] = function(input)
+			local ret = "\n"
+			for li in input:gmatch("%[%*%](.-)\n") do ret = ret .. "1. " .. li .. "\n" end
+			return ret .. "\n"
+		end,
+		["%[url=(.-)%](.-)%[/url%]"] = "[%2](%1)",
+	}
+	for tag, repl in pairs({
+		h1 = "## %1",
+		b = "**%1**",
+		i = "_%1_",
+		u = "__%1__",
+		strike = "~~%1~~",
+		spoiler = "**Spoiler alert:** %1", --lulz
+		noparse = "%1",
+	}) do patterns[("%%[%s%%](.-)%%[/%s%%]"):format(tag, tag)] = repl end
+
+	local readmeFile = io.open(info.readme, "r")
+	local readme = readmeFile:read("*a"); readmeFile:close()
+	if readme:find("%[//%]: # %(start%)") then
+		local bbFile = io.open(info.steambb, "r")
+		local bb = bbFile:read("*a"); bbFile:close()
+
+		-- we do not properly escape [, ], (, or )
+		-- https://daringfireball.net/projects/markdown/syntax#backslash
+		bb = bb:gsub("([^%[])%*", "%1\\*")
+		local escape = {"%\\", "%_", "%`", "%{", "%}", "%#", "%+", "%-", "%.", "%!"}
+		for _, r in next, escape do bb = bb:gsub(r, "\\"..r:sub(#r)) end
+
+		for pat, repl in pairs(patterns) do bb = bb:gsub(pat, repl) end
+		bb = bb:gsub("%%", "%%%%")
+
+		local put = "%%1\nSteam description transliterated from `%s` by [our release script](%s).\n\n%s\n\n%%2"
+		local updated = readme:gsub("(%[//%]: # %(start%)).*(%[//%]: # %(stop%)\n?)", put:format(info.steambb, scriptUrl, bb))
+		if readme == updated then
+			print(info.steambb .. " has changed, but " .. info.readme .. " seems to contain all the changes already.")
+		else
+			local write = io.open(info.readme, "w+")
+			write:write(updated)
+			write:close()
+			if _repoExists then
+				print(info.readme .. " updated, pushing to git...")
+				git("add", info.readme)
+				git("commit", "-m", ("\"Updated %s with changes from %s.\""):format(info.readme, info.steambb))
+				git("push")
+			else
+				print(info.readme .. " updated.")
+			end
+		end
+	else
+		print(info.readme .. " will not be updated, it does not have the start tag.")
+	end
+end
+
+if _steam then
+	local lfs = require("lfs")
+	local rm = command("rm")
+
+	local fullLinkPath = modFolder .. info.path
+	local quotedPath = "'" .. fullLinkPath .. "'"
+	local exists = lfs.attributes(fullLinkPath, "mode")
+	if type(exists) == "string" then
+		-- The folder exists in the STELLARIS_MOD_FOLDER, so delete it entirely.
+		rm("-rf", quotedPath)
+		print("Nuked current mod folder.")
+	end
+
+	command("mkdir")(quotedPath)
+
+	-- Copy everything from the current folder to quotedPath
+	command("cp")("-R", ".", quotedPath)
+
+	-- Wait for stellaris launcher release
+	local answer
+	repeat
+		io.write("Open the Stellaris launcher, make the upload, and type 'done': ")
+		io.flush()
+		answer = io.read()
+	until answer:lower() == "done"
+
+	-- Delete the folder again
+	rm("-rf", quotedPath)
+	print("Nuked the mod folder again.")
+
+	-- Run linkstl
+	print(_(command("linkstl")()))
+end
+
+
+if _git then
+	-- Read git changelog from last tag to HEAD
+	local changes
+	if type(lastTag) == "string" and #lastTag ~= 0 then
+		changes = _(git("log", lastTag .. "..HEAD", "--pretty=format:\"* %s\""))
+	else
+		changes = _(git("log", "--pretty=format:\"* %s\""))
+	end
+	if type(changes) ~= "string" or #changes == 0 then
+		changes = "* No changes detected since last release."
+	end
+
+	local allTags = _(git("for-each-ref", "--format=\"%(refname:short)\"", "--sort=-authordate", "refs/tags"))
+
+	local tagFmt = "%s-r%d"
+	-- Push a new tag to git
+	-- XXX Should use \n in the escapedTag to check for existing tag names, but I can't be arsed
+	local date = os.date("%Y%m%d")
+	local start = 1
+	local tag = tagFmt:format(date, start)
+	while allTags:find( (tag:gsub("([^%w])", "%%%1")) ) do
+		start = start + 1
+		tag = tagFmt:format(date, start)
+	end
+	git("tag", tag)
+	git("push", "origin", tag)
+	-- Important that we commit the tag before we do the oksh release post below
+
+	-- Create a github release from the pushed tag
+	local _, releaseJson = _gh.createRelease({
+		tag_name = tag,
+		body = changes,
+	}, userId, repo)
+	if type(releaseJson) ~= "table" or not releaseJson.id or not releaseJson.upload_url then
+		print("Could not create a github release for some reason.")
+		-- should do a serpent print of the headers, I guess
+	end
+
+	-- Create a zip archive of the git contents
+	local zip = info.path .. ".zip"
+	git("archive", "--prefix=" .. info.path .. "/", "--output=" .. zip, "HEAD")
+
+	-- Add the .mod file from STELLARIS_MOD_FOLDER to the zip
+	command("zip")("-g", "-j", "'" .. zip .. "'", "'" .. modFile .. "'")
+
+	-- If the github release command above appeared to succeed, upload the ZIP to github.
+	if type(releaseJson.id) ~= "nil" then
+		_gh.uploadReleaseAsset(
+			userId,
+			repo,
+			releaseJson.id,
+			zip, nil, nil, releaseJson.upload_url)
+	end
+end
