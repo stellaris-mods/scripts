@@ -25,9 +25,9 @@ For anything to work,
 
 And you need these dependencies
 *  https://github.com/folknor/luash (probably works with the original as well)
-*  https://github.com/whiteinge/ok.sh
+*  https://github.com/folknor/lua-github
 *  http://keplerproject.github.io/luafilesystem/
-*  zip, jq, curl, and obviously git, and GNU coreutils
+*  zip, curl, and obviously git, and GNU coreutils
 
 `linkstl` is mostly invoked from `stlrel`, but I also use it when I create a new addon, for example.
 
@@ -35,14 +35,14 @@ And you need these dependencies
 
 Remember you can use --steam and --git at the same time.
 
-It's probably important to note that --steam does not sanity checks between steps 3 and 7, which is a sequence of rm + mkdir + cp -R + wait + rm + ln -s. But it works for me. It's safe to run it if the mod doesn't exist in `STELLARIS_MOD_FOLDER`, then the rm in step #3 will just silently do nothing.
+It's probably important to note that --steam does no sanity checks between steps 3 and 7, which is a sequence of rm + mkdir + cp -R + wait + rm + ln -s. But it works for me. It's safe to run it if the mod doesn't exist in `STELLARIS_MOD_FOLDER`, then the rm in step #3 will just silently do nothing.
 
 ```
 Stellaris Mod Release Script
 version %d - https://github.com/stellaris-mods/scripts
 by folk@folk.wtf, licensed CC-BY-SA 4.0
 
-Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh.
+Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh#setup.
 
 --git:
   1. Update the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
