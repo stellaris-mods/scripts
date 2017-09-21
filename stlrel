@@ -26,32 +26,28 @@ local function helpExit(err)
 Stellaris Mod Release Script
 version %d - https://github.com/stellaris-mods/scripts
 by folk@folk.wtf, licensed CC-BY-SA 4.0
+Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh#setup.
 
-Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh.
-
---git:
-  1. Update the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
-  2. If info.steambb has changed since the previous git tag, transliterate the BBcode to Markdown and update info.readme
-  3. Pushes a new tag in the format 19701230, appended by -HHMM if it already exists
-  4. Creates a new release on github from the created tag, with a changelog
-  5. Creates a ZIP with the mod contents + .mod file and adds it to the release
-
---steam:
-  1. Updates the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
-  2. If info.steambb has changed since the previous git tag, transliterate the BBcode to Markdown and update info.readme
-  3. Deletes the mod folder from STELLARIS_MOD_FOLDER entirely
-  4. Copies the contents of the current folder to STELLARIS_MOD_FOLDER/modinfo.path
-  5. Waits for you to do a release
-  6. Does #3 again
-  7. Runs linkstl
-
+  --help            Outputs this text.
+  --mod             Updates the .mod file in STELLARIS_MOD_FOLDER based on the contents of modinfo.lua.
+  --bb              Transliterates the modinfo.steambb to Markdown and updates info.readme.
+  --dry             git commands are ignored, for safe offline testing.
+  --force           Ignore untracked files or unstaged changes.
+  --git             1. Runs --mod
+                    2. Runs --bb
+                    3. Pushes a new tag in the format 19701230-rX, increments X as necessary
+                    4. Creates a new release on github from the created tag, with a changelog
+                    5. Creates a ZIP with the mod contents + .mod file and adds it to the release
+  --steam:          1. Runs --mod
+                    2. Runs --bb
+                    3. Deletes the mod folder from STELLARIS_MOD_FOLDER entirely
+                    4. Copies the contents of the current folder to STELLARIS_MOD_FOLDER/modinfo.path
+                    5. Waits for you to do a release
+                    6. Does #3 again
+                    7. Runs linkstl
   --steam runs even if the mod is not in git. So then it skips some parts of #2.
   I need --steam because the Stellaris launcher can not upload content from symbolic links.
   And yes, --steam is potentially destructive if $STELLARIS_MOD_FOLDER is incorrectly set, for example.
-
---help: This text.
---dry: git commands are ignored, for safe offline testing.
---force: Ignore untracked files or unstaged changes.
 ]]):format(VERSION))
 	os.exit()
 end
@@ -63,17 +59,21 @@ end
 -- Patches welcome, I certainly don't plan on spending much more time on
 -- this script.
 
-local _dry, _force, _steam, _git
+local _dry, _force, _steam, _git, _mod, _bb
 for i = 1, select("#", ...) do
 	local arg = (select(i, ...)):lower()
 	if arg:find("help") then helpExit()
 	elseif arg:find("dry") then _dry = true
 	elseif arg:find("force") then _force = true
-	elseif arg:find("git") then _git = true
-	elseif arg:find("steam") then _steam = true
+	elseif arg:find("git") then _git = true; _bb = true; _mod = true
+	elseif arg:find("steam") then _steam = true; _bb = true; _mod = true
+	elseif arg:find("bb") then _bb = true
+	elseif arg:find("mod") then _mod = true
 	end
 end
-if not _steam and not _git then helpExit("You must specify either --steam or --git.") end
+if not _steam and not _git and not _mod and not _bb then
+	helpExit("You must specify either --mod, --bb, --steam, or --git.")
+end
 local _gh = require("lua-github").easy
 
 local sh = require("sh")
@@ -136,7 +136,6 @@ if _git then
 	if not _dry then repo = repo:match("^.*/([%w%-%_]+)$") end
 end
 
-
 -- sanity check the environment
 local userId = os.getenv("STELLARIS_GIT_USER")
 local modFolder = os.getenv("STELLARIS_MOD_FOLDER")
@@ -150,51 +149,49 @@ local modinfo = loadfile("modinfo.lua")
 if type(modinfo) ~= "function" then helpExit("Could not find modinfo.lua in current working directory.") end
 local info = modinfo()
 if type(info) ~= "table" then helpExit("modinfo does not return a mod info table.") end
--- modKeys and modKeyFuncs need to be in the same order
+-- modKeys and modKeyFuncs below need to be in the same order
 local modKeys = {"name", "path", "tags", "picture", "remote_file_id", "supported_version"}
-local modKeyFuncs = {
-	true, function(input)
-		return ('"mod/%s"'):format(input)
-	end, function(input)
-		if #input == 0 then return "{}" end
-		local tags = ""
-		for _, tag in next, input do tags = tags .. ("\t%q\n"):format(tag) end
-		return ("{\n%s}"):format(tags)
-	end, true, function(input)
-		if type(input) ~= "number" then return false end
-		return ("%q"):format(input)
-	end, true
-}
 for _, k in next, modKeys do if type(info[k]) == "nil" then helpExit(("Key %q seems invalid."):format(k)) end end
 
--- load mod info from modinfo.lua in the current folder, and update $STELLARIS_MOD_FOLDER/mod_id.mod
--- with the contents from modinfo.lua.
--- Note that this is pushed regardless whether there are any changes or not. This file should not be in git.
 local modFile = modFolder .. info.path .. ".mod"
-local dotModContent = ""
-for i, key in next, modKeys do
-	if type(modKeyFuncs[i]) == "function" then
-		local ret = modKeyFuncs[i](info[key])
-		if ret then dotModContent = dotModContent .. ("%s=%s\n"):format(key, ret) end
-	elseif info[key] then
-		dotModContent = dotModContent .. ("%s=%q\n"):format(key, tostring(info[key]))
+if _mod then
+	local modKeyFuncs = {
+		true, function(input)
+			return ('"mod/%s"'):format(input)
+		end, function(input)
+			if #input == 0 then return "{}" end
+			local tags = ""
+			for _, tag in next, input do tags = tags .. ("\t%q\n"):format(tag) end
+			return ("{\n%s}"):format(tags)
+		end, true, function(input)
+			if type(input) ~= "number" then return false end
+			return ("%q"):format(input)
+		end, true
+	}
+	-- load mod info from modinfo.lua in the current folder, and update $STELLARIS_MOD_FOLDER/mod_id.mod
+	-- with the contents from modinfo.lua.
+	-- Note that this is pushed regardless whether there are any changes or not. This file should not be in git.
+	local dotModContent = ""
+	for i, key in next, modKeys do
+		if type(modKeyFuncs[i]) == "function" then
+			local ret = modKeyFuncs[i](info[key])
+			if ret then dotModContent = dotModContent .. ("%s=%s\n"):format(key, ret) end
+		elseif info[key] then
+			dotModContent = dotModContent .. ("%s=%q\n"):format(key, tostring(info[key]))
+		end
 	end
+	local w = io.open(modFile, "w+"); w:write(dotModContent); w:close()
+	print(("Updated mod file %s for Stellaris version %s."):format(modFile, info.supported_version))
 end
 
-local w = io.open(modFile, "w+"); w:write(dotModContent); w:close()
-print(("Updated mod file %s for Stellaris version %s."):format(modFile, info.supported_version))
-
-local lastTag, changedFiles
+local lastTag
 if _repoExists then
 	-- Get the last tag in git
 	lastTag = _(git("for-each-ref", "--format=\"%(refname:short)\"", "--sort=-authordate", "--count=1", "refs/tags"))
-
-	-- See if the steam bb file has changed since the last tag
-	changedFiles = _(git("diff", "--name-only", "HEAD", lastTag))
 end
 
-if info.readme and info.steambb and (not _repoExists or _dry or changedFiles:find(info.steambb)) then
-	-- The steam bb description has changed, we need to transliterate from steambb to markdown
+if _bb and info.readme and info.steambb then
+	-- Transliterate from steambb to markdown
 	local function block(input)
 		local ret = ""
 		for line in input:gmatch("[^\r\n]+") do ret = ret .. "\n> " .. line end
@@ -248,7 +245,7 @@ if info.readme and info.steambb and (not _repoExists or _dry or changedFiles:fin
 		local put = "%%1\nSteam description transliterated from `%s` by [our release script](%s).\n\n%s\n\n%%2"
 		local updated = readme:gsub("(%[//%]: # %(start%)).*(%[//%]: # %(stop%)\n?)", put:format(info.steambb, scriptUrl, bb))
 		if readme == updated then
-			print(info.steambb .. " has changed, but " .. info.readme .. " seems to contain all the changes already.")
+			print(info.readme .. " does not need updating.")
 		else
 			local write = io.open(info.readme, "w+")
 			write:write(updated)
