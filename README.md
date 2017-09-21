@@ -27,6 +27,7 @@ And you need these dependencies
 *  https://github.com/folknor/luash (probably works with the original as well)
 *  https://github.com/folknor/lua-github
 *  http://keplerproject.github.io/luafilesystem/
+*  https://github.com/brimworks/lua-zip
 *  zip, curl, and obviously git, and GNU coreutils
 
 `linkstl` is mostly invoked from `stlrel`, but I also use it when I create a new addon, for example.

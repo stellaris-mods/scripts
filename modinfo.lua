@@ -14,6 +14,24 @@ return {
 	-- These two fields are optional, but .steambb requires .readme
 	readme = "test-readme.md", -- best named README.md or readme.md
 	steambb = "test.bbcode", -- I usually call it steam.bbcode, but whatever you want
+
+	-- stlrel uses git-archive, which means that any files in
+	-- .gitignore are not included. If you want to include any,
+	-- you need to add relative paths here.
+	-- This table is optional.
+	zip = {
+		-- include all absolute files from .gitignore
+		-- this does not include empty folders, globs, patterns, or
+		-- anything else that luafilesystem does not recognize as mode=file.
+		-- this key is optional
+		gitignore = true,
+		-- can contain relative file paths
+		-- this key is optional
+		files = {
+			"file1.txt",
+			"common/on_actions/file2.txt",
+		},
+	}
 }
 
 -- path:

@@ -267,8 +267,9 @@ if info.readme and info.steambb and (not _repoExists or _dry or changedFiles:fin
 	end
 end
 
+local lfs = require("lfs")
+
 if _steam then
-	local lfs = require("lfs")
 	local rm = command("rm")
 
 	local fullLinkPath = modFolder .. info.path
@@ -342,10 +343,49 @@ if _git then
 
 	-- Create a zip archive of the git contents
 	local zip = info.path .. ".zip"
-	git("archive", "--prefix=" .. info.path .. "/", "--output=" .. zip, "HEAD")
+	git("archive", "--prefix=" .. info.path .. "/", "--output=" .. zip, tag)
 
 	-- Add the .mod file from STELLARIS_MOD_FOLDER to the zip
+	-- XXX change to use lua-zip
 	command("zip")("-g", "-j", "'" .. zip .. "'", "'" .. modFile .. "'")
+
+	if type(info.zip) == "table" then
+		local test = {}
+		if info.zip.gitignore then
+			local ignoreFile = io.open(".gitignore", "r")
+			if ignoreFile then
+				local ignore = ignoreFile:read("*a"); ignoreFile:close()
+				if type(ignore) == "string" and #ignore ~= 0 then
+					for glob in ignore:gmatch("[^\n]+") do
+						test[glob] = true
+					end
+				end
+			end
+		end
+		if info.zip.files then
+			for _, file in next, info.zip.files do
+				test[file] = true
+			end
+		end
+
+		local additionalFiles = {}
+		for file in pairs(test) do
+			local exists = lfs.attributes(file, "mode")
+			if type(exists) == "string" and exists == "file" then
+				additionalFiles[file] = info.path .. "/" .. file
+			end
+		end
+		-- The reason we use lua-zip is basically because I could not for
+		-- the life of me find a command-line zip version of adding files to
+		-- a zip with prefix paths.
+		if next(additionalFiles) then
+			local zh = require("brimworks.zip").open(zip)
+			for path, entry in next, additionalFiles do
+				zh:add(entry, "file", path, 0, 0)
+			end
+			zh:close()
+		end
+	end
 
 	-- If the github release command above appeared to succeed, upload the ZIP to github.
 	if type(releaseJson.id) ~= "nil" then
