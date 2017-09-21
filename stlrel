@@ -193,7 +193,7 @@ if _repoExists then
 	changedFiles = _(git("diff", "--name-only", "HEAD", lastTag))
 end
 
-if (not _repoExists or _dry or changedFiles:find(info.steambb)) and info.readme and info.steambb then
+if info.readme and info.steambb and (not _repoExists or _dry or changedFiles:find(info.steambb)) then
 	-- The steam bb description has changed, we need to transliterate from steambb to markdown
 	local function block(input)
 		local ret = ""
