@@ -312,6 +312,11 @@ if _git then
 		changes = "* No changes detected since last release."
 	end
 
+	if type(info.remote_file_id) == "number" then
+		changes = changes .. ("\n\nSteam: https://steamcommunity.com/sharedfiles/filedetails/?id=%d"):format(
+				info.remote_file_id)
+	end
+
 	local allTags = _(git("for-each-ref", "--format=\"%(refname:short)\"", "--sort=-authordate", "refs/tags"))
 
 	local tagFmt = "%s-r%d"
