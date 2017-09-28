@@ -1,5 +1,5 @@
 #!/usr/bin/lua
-local VERSION = 2
+local VERSION = 3
 -- lua release script for stellaris mods
 -- by folk@folk.wtf
 -- LICENSE CC-BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0
