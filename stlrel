@@ -81,7 +81,7 @@ local _ = function(s) if type(s) ~= "nil" then return tostring(s) end end
 
 -- Check for required shell commands
 local which = sh.command("which")
-for _, req in next, {"curl", "git", "zip", "cp", "rm", "linkstl"} do
+for _, req in next, {"rsync", "curl", "git", "zip", "cp", "rm", "linkstl"} do
 	if which(req).__exitcode ~= 0 then helpExit(("`which %s` does not seem to return anything useful."):format(req)) end
 end
 
@@ -152,21 +152,42 @@ if type(info) ~= "table" then helpExit("modinfo does not return a mod info table
 -- modKeys and modKeyFuncs below need to be in the same order
 local modKeys = {"name", "path", "tags", "picture", "remote_file_id", "supported_version"}
 for _, k in next, modKeys do if type(info[k]) == "nil" then helpExit(("Key %q seems invalid."):format(k)) end end
+local lfs = require("lfs")
 
 local modFile = modFolder .. info.path .. ".mod"
 if _mod then
 	local modKeyFuncs = {
-		true, function(input)
+		true, -- name
+		function(input) -- path
 			return ('"mod/%s"'):format(input)
-		end, function(input)
+		end,
+		function(input) --tags
 			if #input == 0 then return "{}" end
 			local tags = ""
 			for _, tag in next, input do tags = tags .. ("\t%q\n"):format(tag) end
 			return ("{\n%s}"):format(tags)
-		end, true, function(input)
+		end,
+		function(input) --picture
+			if type(input) == "string" then
+				local exists = lfs.attributes(input, "mode")
+				if type(exists) == "string" and exists == "file" then
+					return input
+				else
+					local answer
+					repeat
+						io.write( ("Warning: picture file %q set in modinfo does not exist. Continue (y/n)? "):format(tostring(input)) )
+						io.flush()
+						answer = io.read()
+					until answer == "y" or answer == "n"
+					if answer == "n" then os.exit() end
+				end
+			end
+		end,
+		function(input) -- remote_file_id
 			if type(input) ~= "number" then return false end
 			return ("%q"):format(input)
-		end, true
+		end,
+		true -- supported_version
 	}
 	-- load mod info from modinfo.lua in the current folder, and update $STELLARIS_MOD_FOLDER/mod_id.mod
 	-- with the contents from modinfo.lua.
@@ -264,8 +285,6 @@ if _bb and info.readme and info.steambb then
 	end
 end
 
-local lfs = require("lfs")
-
 if _steam then
 	local rm = command("rm")
 
@@ -281,7 +300,17 @@ if _steam then
 	command("mkdir")(quotedPath)
 
 	-- Copy everything from the current folder to quotedPath
-	command("cp")("-R", ".", quotedPath)
+	command("rsync")({
+		r = true, -- Recursive
+		p = true, -- Copy permissions
+		g = true, -- Preserve group
+		t = true, -- Preserve mtime
+		o = true, -- Preserve owner
+		m = true, -- Prunes empty folders
+		E = true, -- Keep executable status
+		X = true, -- Keep extended attributes
+		exclude = info.exclude,
+	}, ".", quotedPath)
 
 	-- Wait for stellaris launcher release
 	local answer
@@ -336,6 +365,7 @@ if _git then
 	-- Create a github release from the pushed tag
 	local _, releaseJson = _gh.createRelease({
 		tag_name = tag,
+		name = tag,
 		body = changes,
 	}, userId, repo)
 	if type(releaseJson) ~= "table" or not releaseJson.id or not releaseJson.upload_url then
