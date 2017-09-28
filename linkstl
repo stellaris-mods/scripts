@@ -43,7 +43,7 @@ local mode, modFileError = lfs.attributes(modFile, "mode")
 if type(mode) ~= "string" then
 	if not mode then print(modFileError) end
 	print(info.path .. ".mod does not seem to exist.")
-	print("Please create it before running Stellaris.")
+	print("Please create it before running Stellaris. For example by running `stlrel --mod`.")
 else
 	local esc = info.path:gsub("([^%w])", "%%%1")
 	local pattern = ("path%%=%%\"mod/%s%%\""):format(esc)
