@@ -75,8 +75,10 @@ if not _steam and not _git and not _mod and not _bb then
 	helpExit("You must specify either --mod, --bb, --steam, or --git.")
 end
 local _gh = require("lua-github").easy
-
 local sh = require("sh")
+if type(sh.fork) ~= "string" or sh.fork ~= "folknor" or sh.version < 4 then
+	helpExit("stlrel requires folknors fork of luash, with a version higher than 3.")
+end
 local _ = function(s) if type(s) ~= "nil" then return tostring(s) end end
 
 -- Check for required shell commands
