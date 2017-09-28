@@ -31,7 +31,16 @@ return {
 			"file1.txt",
 			"common/on_actions/file2.txt",
 		},
-	}
+	},
+	-- You obviously should not include "common" and "localisation" in .exclude.
+	-- Files and folders added here will not be copied over to the Paradox Interactive
+	-- local mod folder when you run `stlrel --steam`.
+	-- The most common things to list are ".git", and possibly if you have a folder
+	-- that contains the source files for your graphics, like "3d Models" or "graphics".
+	-- Note that the stellaris launcher automatically excludes a lot of files from your
+	-- folder anyway, so this isn't "necessary" in any way. It can just help to keep the
+	-- size of the mod down.
+	exclude = { ".git", "test.bbcode", "test-readme.md", "common", "localisation" }
 }
 
 -- path:
