@@ -173,7 +173,7 @@ if _mod then
 			if type(input) == "string" then
 				local exists = lfs.attributes(input, "mode")
 				if type(exists) == "string" and exists == "file" then
-					return input
+					return ("%q"):format(input)
 				else
 					local answer
 					repeat
@@ -273,7 +273,7 @@ if _bb and info.readme and info.steambb then
 			local write = io.open(info.readme, "w+")
 			write:write(updated)
 			write:close()
-			if _repoExists then
+			if _repoExists and _git then
 				print(info.readme .. " updated, pushing to git...")
 				git("add", info.readme)
 				git("commit", "-m", ("\"Updated %s with changes from %s.\""):format(info.readme, info.steambb))
