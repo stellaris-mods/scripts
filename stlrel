@@ -1,5 +1,5 @@
 #!/usr/bin/lua
-local VERSION = 3
+local VERSION = 4
 -- lua release script for stellaris mods
 -- by folk@folk.wtf
 -- LICENSE CC-BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0
@@ -33,11 +33,12 @@ Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh#set
   --bb              Transliterates the modinfo.steambb to Markdown and updates info.readme.
   --dry             git commands are ignored, for safe offline testing.
   --force           Ignore untracked files or unstaged changes.
+  --zip             Creates a zip file with the latest tag + .mod file
   --git             1. Runs --mod
                     2. Runs --bb
                     3. Pushes a new tag in the format 19701230-rX, increments X as necessary
                     4. Creates a new release on github from the created tag, with a changelog
-                    5. Creates a ZIP with the mod contents + .mod file and adds it to the release
+                    5. Runs --zip
   --steam:          1. Runs --mod
                     2. Runs --bb
                     3. Deletes the mod folder from STELLARIS_MOD_FOLDER entirely
@@ -59,21 +60,30 @@ end
 -- Patches welcome, I certainly don't plan on spending much more time on
 -- this script.
 
-local _dry, _force, _steam, _git, _mod, _bb
+local _dry, _force, _steam, _git, _mod, _bb, _releaseZip
 for i = 1, select("#", ...) do
 	local arg = (select(i, ...)):lower()
 	if arg:find("help") then helpExit()
 	elseif arg:find("dry") then _dry = true
 	elseif arg:find("force") then _force = true
-	elseif arg:find("git") then _git = true; _bb = true; _mod = true
-	elseif arg:find("steam") then _steam = true; _bb = true; _mod = true
+	elseif arg:find("git") then _git = true
+	elseif arg:find("steam") then _steam = true
 	elseif arg:find("bb") then _bb = true
 	elseif arg:find("mod") then _mod = true
+	elseif arg:find("zip") then _releaseZip = true
 	end
 end
-if not _steam and not _git and not _mod and not _bb then
-	helpExit("You must specify either --mod, --bb, --steam, or --git.")
+if not _steam and not _git and not _mod and not _bb and not _releaseZip then
+	helpExit("You must specify either --mod, --bb, --steam, --zip, or --git.")
 end
+
+if _git then _mod = true end
+if _git then _bb = true end
+if _git then _releaseZip = true end
+
+if _steam then _mod = true end
+if _steam then _bb = true end
+
 local _gh = require("lua-github").easy
 local sh = require("sh")
 if type(sh.fork) ~= "string" or sh.fork ~= "folknor" or sh.version < 4 then
@@ -330,6 +340,8 @@ if _steam then
 	print(_(command("linkstl")()))
 end
 
+local zipTag = _(git("describe", "--abbrev=0", "--tags"))
+local releaseId, uploadUrl
 
 if _git then
 	-- Read git changelog from last tag to HEAD
@@ -364,20 +376,33 @@ if _git then
 	git("push", "origin", tag)
 	-- Important that we commit the tag before we do the oksh release post below
 
+	-- Make sure we zip the new tag instead of the old latest tag
+	zipTag = tag
+
 	-- Create a github release from the pushed tag
 	local _, releaseJson = _gh.createRelease({
 		tag_name = tag,
 		name = tag,
 		body = changes,
 	}, userId, repo)
-	if type(releaseJson) ~= "table" or not releaseJson.id or not releaseJson.upload_url then
-		print("Could not create a github release for some reason.")
-		-- should do a serpent print of the headers, I guess
-	end
 
+	if type(releaseJson) ~= "table" or not releaseJson.id or not releaseJson.upload_url then
+		local serp = require("serpent")
+		print("Could not create a github release for some reason.")
+		print(serp.block(_))
+		print(serp.block(releaseJson))
+		-- should do a serpent print of the headers, I guess
+	else
+		releaseId = releaseJson.id
+		uploadUrl = releaseJson.upload_url
+	end
+end
+
+local zip = info.path .. ".zip"
+
+if _releaseZip then
 	-- Create a zip archive of the git contents
-	local zip = info.path .. ".zip"
-	git("archive", "--prefix=" .. info.path .. "/", "--output=" .. zip, tag)
+	git("archive", "--prefix=" .. info.path .. "/", "--output=" .. zip, zipTag)
 
 	-- Add the .mod file from STELLARIS_MOD_FOLDER to the zip
 	-- XXX change to use lua-zip
@@ -420,13 +445,15 @@ if _git then
 			zh:close()
 		end
 	end
+end
 
+if _releaseZip and _git then
 	-- If the github release command above appeared to succeed, upload the ZIP to github.
-	if type(releaseJson.id) ~= "nil" then
+	if type(releaseId) ~= "nil" then
 		_gh.uploadReleaseAsset(
 			userId,
 			repo,
-			releaseJson.id,
-			zip, nil, nil, releaseJson.upload_url)
+			releaseId,
+			zip, nil, nil, uploadUrl)
 	end
 end
