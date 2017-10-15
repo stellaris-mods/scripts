@@ -1,5 +1,5 @@
 #!/usr/bin/lua
-local VERSION = 4
+local VERSION = 5
 -- lua release script for stellaris mods
 -- by folk@folk.wtf
 -- LICENSE CC-BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0
@@ -151,8 +151,12 @@ end
 -- sanity check the environment
 local userId = os.getenv("STELLARIS_GIT_USER")
 local modFolder = os.getenv("STELLARIS_MOD_FOLDER")
+local steamUser = os.getenv("STELLARIS_UPLOADER_ID")
+
 if type(modFolder) ~= "string" or #modFolder == 0 then helpExit("Set $STELLARIS_MOD_FOLDER.") end
 if type(userId) ~= "string" or #userId == 0 then helpExit("Set $STELLARIS_GIT_USER to your github username.") end
+if type(steamUser) ~= "string" or #steamUser == 0 then helpExit("Set $STELLARIS_UPLOADER_ID to your steam name.") end
+
 if modFolder:sub(#modFolder) ~= "/" then modFolder = modFolder .. "/" end
 if modFolder:find("\\") then print("folk you idiot, you put \\ in the path again."); return end
 
@@ -164,6 +168,14 @@ if type(info) ~= "table" then helpExit("modinfo does not return a mod info table
 -- modKeys and modKeyFuncs below need to be in the same order
 local modKeys = {"name", "path", "tags", "picture", "remote_file_id", "supported_version"}
 for _, k in next, modKeys do if type(info[k]) == "nil" then helpExit(("Key %q seems invalid."):format(k)) end end
+if type(info.originalUploader) ~= "string" then helpExit("modinfo needs a originalUploader set.") end
+
+local _ignorePicture = false
+if info.originalUploader ~= steamUser then
+	-- We will probably find more quirks in due time.
+	_ignorePicture = true
+end
+
 local lfs = require("lfs")
 
 local modFile = modFolder .. info.path .. ".mod"
@@ -180,7 +192,7 @@ if _mod then
 			return ("{\n%s}"):format(tags)
 		end,
 		function(input) --picture
-			if type(input) == "string" then
+			if not _ignorePicture and type(input) == "string" then
 				local exists = lfs.attributes(input, "mode")
 				if type(exists) == "string" and exists == "file" then
 					return ("%q"):format(input)

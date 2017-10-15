@@ -42,30 +42,27 @@ It's probably important to note that --steam does no sanity checks between steps
 Stellaris Mod Release Script
 version %d - https://github.com/stellaris-mods/scripts
 by folk@folk.wtf, licensed CC-BY-SA 4.0
-
 Remember to set up ~/.netrc, read more at https://github.com/whiteinge/ok.sh#setup.
 
---git:
-  1. Update the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
-  2. If info.steambb has changed since the previous git tag, transliterate the BBcode to Markdown and update info.readme
-  3. Pushes a new tag in the format 19701230, appended by -HHMM if it already exists
-  4. Creates a new release on github from the created tag, with a changelog
-  5. Creates a ZIP with the mod contents + .mod file and adds it to the release
-
---steam:
-  1. Updates the .mod file in $STELLARIS_MOD_FOLDER based on the contents of modinfo.lua
-  2. If info.steambb has changed since the previous git tag, transliterate the BBcode to Markdown and update info.readme
-  3. Deletes the mod folder from STELLARIS_MOD_FOLDER entirely
-  4. Copies the contents of the current folder to STELLARIS_MOD_FOLDER/modinfo.path
-  5. Waits for you to do a release
-  6. Does #3 again
-  7. Runs linkstl
-
+  --help            Outputs this text.
+  --mod             Updates the .mod file in STELLARIS_MOD_FOLDER based on the contents of modinfo.lua.
+  --bb              Transliterates the modinfo.steambb to Markdown and updates info.readme.
+  --dry             git commands are ignored, for safe offline testing.
+  --force           Ignore untracked files or unstaged changes.
+  --zip             Creates a zip file with the latest tag + .mod file
+  --git             1. Runs --mod
+                    2. Runs --bb
+                    3. Pushes a new tag in the format 19701230-rX, increments X as necessary
+                    4. Creates a new release on github from the created tag, with a changelog
+                    5. Runs --zip
+  --steam:          1. Runs --mod
+                    2. Runs --bb
+                    3. Deletes the mod folder from STELLARIS_MOD_FOLDER entirely
+                    4. Copies the contents of the current folder to STELLARIS_MOD_FOLDER/modinfo.path
+                    5. Waits for you to do a release
+                    6. Does #3 again
+                    7. Runs linkstl
   --steam runs even if the mod is not in git. So then it skips some parts of #2.
   I need --steam because the Stellaris launcher can not upload content from symbolic links.
   And yes, --steam is potentially destructive if $STELLARIS_MOD_FOLDER is incorrectly set, for example.
-
---help: This text.
---dry: git commands are ignored, for safe offline testing.
---force: Ignore untracked files or unstaged changes.
 ```

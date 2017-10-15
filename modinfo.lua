@@ -11,9 +11,19 @@ return {
 	remote_file_id = 123457890,
 	--remote_file_id = false, -- Ignored, not written to .mod file by stlrel
 
+	-- This field is required because unless you are the original uploader
+	-- of a mod on steam, there's certain things the Stellaris launcher will
+	-- error on, for example the picture= property in the .mod file can't
+	-- be set.
+	-- So stlrel et.al. compare this value to $STELLARIS_UPLOADER_ID, and
+	-- if they are not equal, it circumvents the Stellaris Launchers weird
+	-- requirements.
+	originalUploader = "folk",
+
 	-- These two fields are optional, but .steambb requires .readme
 	readme = "test-readme.md", -- best named README.md or readme.md
 	steambb = "test.bbcode", -- I usually call it steam.bbcode, but whatever you want
+	bbheadinglevel = 2, -- How many #'s to prepend to headings for BB translation, default 2
 
 	-- stlrel uses git-archive, which means that any files in
 	-- .gitignore are not included. If you want to include any,
