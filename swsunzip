@@ -1,0 +1,54 @@
+#!/usr/bin/lua
+
+-- Simple, badly written script to unzip all workshop items from
+-- STELLARIS_WORKSHOP_FOLDER to STELLARIS_3RD_PARTY_FOLDER.
+
+local sh = require("sh")
+local _ = tostring
+
+local wsRoot = os.getenv("STELLARIS_WORKSHOP_FOLDER")
+if type(wsRoot) ~= "string" or #wsRoot == 0 then print("Set $STELLARIS_WORKSHOP_FOLDER."); os.exit() end
+if wsRoot:sub(#wsRoot) ~= "/" then wsRoot = wsRoot .. "/" end
+if wsRoot:find("\\") then print("folk you idiot, you put \\ in the path again."); return end
+
+local unzipRoot = os.getenv("STELLARIS_3RD_PARTY_FOLDER")
+if type(unzipRoot) ~= "string" or #unzipRoot == 0 then print("Set $STELLARIS_3RD_PARTY_FOLDER."); os.exit() end
+if unzipRoot:sub(#unzipRoot) ~= "/" then unzipRoot = unzipRoot .. "/" end
+if unzipRoot:find("\\") then print("folk you idiot, you put \\ in the path again."); return end
+
+local lfs = require("lfs")
+local success = lfs.chdir(wsRoot)
+if not success then print("lfs failed"); return end
+lfs.mkdir(unzipRoot)
+
+-- Code by David Kastrup
+-- from http://lua-users.org/wiki/DirTreeIterator
+local function yieldtree(folder)
+	for entry in lfs.dir(folder) do
+		if entry ~= "." and entry ~= ".." then
+			entry = folder.."/"..entry
+			local attr = lfs.attributes(entry)
+			coroutine.yield(entry,attr)
+			if attr.mode == "directory" then
+				yieldtree(entry)
+			end
+		end
+	end
+end
+local function dirtree(dir)
+	if string.sub(dir, -1) == "/" then dir = string.sub(dir, 1, -2) end
+	return coroutine.wrap(function() yieldtree(dir) end)
+end
+
+local unzip = sh.command("unzip")
+for file, attr in dirtree(wsRoot) do
+	if attr.mode == "file" then
+		local name, ext = file:match(".-([^\\/]-)%.?([^%.\\/]*)$")
+		if ext then ext = ext:lower() end
+		if ext == "zip" then
+			print("Unzipping " .. name .. " ...")
+			lfs.mkdir(unzipRoot .. name)
+			unzip("-o", "-d", "'" .. unzipRoot .. name .. "'", "'" .. file .. "'")
+		end
+	end
+end
