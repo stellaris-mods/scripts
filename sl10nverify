@@ -1,0 +1,67 @@
+#!/usr/bin/lua
+-- Verifies that all l10n keys from l_english exist in the other languages.
+
+local lfs = require("lfs")
+-- Code by David Kastrup
+-- from http://lua-users.org/wiki/DirTreeIterator
+local function yieldtree(folder)
+	for entry in lfs.dir(folder) do
+		if entry ~= "." and entry ~= ".." then
+			entry = folder.."/"..entry
+			local attr = lfs.attributes(entry)
+			coroutine.yield(entry,attr)
+			if attr.mode == "directory" then
+				yieldtree(entry)
+			end
+		end
+	end
+end
+local function dirtree(dir)
+	if string.sub(dir, -1) == "/" then dir = string.sub(dir, 1, -2) end
+	return coroutine.wrap(function() yieldtree(dir) end)
+end
+
+local verify = {}
+for file, attr in dirtree(".") do
+	if attr.mode == "file" then
+		local name, ext = file:match(".-([^\\/]-)%.?([^%.\\/]*)$")
+		if ext then ext = ext:lower() end
+		if ext == "yml" then
+			local n, l = name:match("^(.*)_l_(.*)$")
+			if not verify[n] then verify[n] = {} end
+			verify[n][l] = file
+		end
+	end
+end
+
+local function buildKeys(file)
+	local f = io.open(file, "r")
+	local content = f:read("*a"); f:close()
+	local keys = {}
+	for key in content:gmatch("([%w%_%.]+):%d?%s?[\"\']") do
+		keys[key] = true
+	end
+	return keys
+end
+
+local function validate(srcName, keys, target)
+	local f = io.open(target, "r")
+	local content = f:read("*a"); f:close()
+	for key in pairs(keys) do
+		if not content:find(key .. ":") then
+			print("FAIL", srcName, target, key)
+		end
+	end
+end
+
+for source, langs in pairs(verify) do
+	if langs.english then
+		local map = buildKeys(langs.english)
+		for lang, file in pairs(langs) do
+			if lang ~= "english" then
+				validate(source, map, file)
+			end
+		end
+	end
+end
+
