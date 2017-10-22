@@ -27,19 +27,30 @@ for file, attr in dirtree(".") do
 		local name, ext = file:match(".-([^\\/]-)%.?([^%.\\/]*)$")
 		if ext then ext = ext:lower() end
 		if ext == "yml" then
-			local n, l = name:match("^(.*)_l_(.*)$")
+			local n, l = name:match("^(.*)_(l_[%w_]+)$")
 			if not verify[n] then verify[n] = {} end
 			verify[n][l] = file
 		end
 	end
 end
 
+local languages = {
+	["l_english"] = true,
+	["l_braz_por"] = true,
+	["l_german"] = true,
+	["l_french"] = true,
+	["l_spanish"] = true,
+	["l_russian"] = true,
+	["l_polish"] = true,
+	--["l_trad_chinese"] = true,
+}
+
 local function buildKeys(file)
 	local f = io.open(file, "r")
 	local content = f:read("*a"); f:close()
 	local keys = {}
 	for key, value in content:gmatch("([%w%_%.]+):%d?%s?([^\n]+)") do
-		keys[key] = value
+		if not languages[key] then keys[key] = value end
 	end
 	return keys
 end
@@ -58,12 +69,17 @@ local function validate(srcName, keys, target)
 end
 
 for source, langs in pairs(verify) do
-	if langs.english then
-		local map = buildKeys(langs.english)
+	if langs.l_english then
+		local map = buildKeys(langs.l_english)
 		for lang, file in pairs(langs) do
 			if lang ~= "english" then
 				validate(source, map, file)
 			end
+		end
+	end
+	for lang in pairs(languages) do
+		if not langs[lang] then
+			print(source .. " seems to be missing a language file for " .. lang)
 		end
 	end
 end
