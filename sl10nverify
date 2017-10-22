@@ -38,18 +38,21 @@ local function buildKeys(file)
 	local f = io.open(file, "r")
 	local content = f:read("*a"); f:close()
 	local keys = {}
-	for key in content:gmatch("([%w%_%.]+):%d?%s?[\"\']") do
-		keys[key] = true
+	for key, value in content:gmatch("([%w%_%.]+):%d?%s?([^\n]+)") do
+		keys[key] = value
 	end
 	return keys
 end
 
+local fmt = "%s: %s"
 local function validate(srcName, keys, target)
 	local f = io.open(target, "r")
 	local content = f:read("*a"); f:close()
-	for key in pairs(keys) do
+	local header = false
+	for key, value in pairs(keys) do
 		if not content:find(key .. ":") then
-			print("FAIL", srcName, target, key)
+			if not header then print("FAILED VALIDATION", srcName, target); header = true end
+			print(fmt:format(key, value))
 		end
 	end
 end
